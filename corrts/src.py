@@ -182,15 +182,17 @@ def estimate_roughness_rft(x, y, axis=-1, dt=1):
     return np.sum(u**2 + v**2, axis=axis) / (n * dt**2)
 
 def estimate_roughness_fft(x, y, axis=-1, dt=1): 
+
     x = standardize(x, axis=axis)
     y = standardize(y, axis=axis)
 
-    Sx = np.fft.fft(x, axis=axis)
-    Sy = np.fft.fft(y, axis=axis)
+    Sx = np.abs(np.fft.fft(x, axis=axis))**2
+    Sy = np.abs(np.fft.fft(y, axis=axis))**2
 
     f  = np.fft.fftfreq(x.shape[axis]) / dt
-
-    return np.sqrt(np.mean(f**2 *(Sx + Sy)))
+    df = f[1]
+    # over 4 as we average dofs, not the roughness (?)
+    return np.mean(df * (2 * np.pi * f) ** 2 * (Sx + Sy)) / 4 
 
 _RG_METHOD_MAP = {
     "rft": estimate_roughness_rft, 

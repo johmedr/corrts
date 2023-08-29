@@ -95,7 +95,7 @@ def stats_summary(metrics, x, y, axis=-1, n_surrogates=5000):
     for k, ak in a.items(): 
         edfs[k]  = ak * n
         p[k]     = z_pvalue(z, edfs[k])
-        kappa[k] = fisher_scaling(ak, r) 
+        kappa[k] = fisher_scaling(edfs[k], r) 
 
 
     # Sampling
@@ -112,9 +112,9 @@ def stats_summary(metrics, x, y, axis=-1, n_surrogates=5000):
 def z_pvalue(z, n): 
     return 2 * scipy.stats.norm.cdf(-np.abs(z), 0, 1./np.sqrt(n-3))
 
-def fisher_scaling(a, r): 
+def fisher_scaling(v, r): 
     z = fisher_transform(r)
-    w = inv_fisher_transform(a * z)
+    w = inv_fisher_transform(np.sqrt(v-3) * z)
     
     return w
 

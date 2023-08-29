@@ -95,7 +95,7 @@ def stats_summary(metrics, x, y, axis=-1, n_surrogates=5000):
     for k, ak in a.items(): 
         edfs[k]  = ak * n
         p[k]     = z_pvalue(z, edfs[k])
-        kappa[k] = fisher_scaling(edfs[k], r) 
+        kappa[k] = fisher_scaling(ak, r) 
 
 
     # Sampling
@@ -112,9 +112,9 @@ def stats_summary(metrics, x, y, axis=-1, n_surrogates=5000):
 def z_pvalue(z, n): 
     return 2 * scipy.stats.norm.cdf(-np.abs(z), 0, 1./np.sqrt(n-3))
 
-def fisher_scaling(v, r): 
+def fisher_scaling(a, r): 
     z = fisher_transform(r)
-    w = inv_fisher_transform(np.sqrt(v-3) * z)
+    w = inv_fisher_transform(np.sqrt(a) * z)
     
     return w
 
@@ -282,7 +282,7 @@ def bootstrap_p(metrics, x, y, n, axis=-1, return_samples=False):
 
 # Simulating random processes
 # ---------------------------
-def correlated_noise(n: int, m=1, r=1, dt=1, kernel='gaussian'):
+def gaussian_acf_noise(n: int, m=1, r=1, dt=1, kernel='gaussian'):
     t = np.linspace(-n//2, n//2, n+1, endpoint=True) * dt 
 
     if kernel == 'gaussian': 
@@ -299,6 +299,9 @@ def correlated_noise(n: int, m=1, r=1, dt=1, kernel='gaussian'):
     x  = np.squeeze(x)
 
     return x
+
+def sample_random_process(n: int, acf='gaussian', *args, **kwargs): 
+    return gaussian_acf_noise(n, *args, **kwargs)
 
 
 

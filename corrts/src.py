@@ -16,7 +16,7 @@ def corrts(x, y, axis=-1, coef="pearson", p_value=True, correction="bh"):
 
 # Utils
 # -----
-def standardize(x, axis=-1, ddof=1): 
+def normalize(x, axis=-1, ddof=1): 
     return (x - np.mean(x, axis=axis, keepdims=True)) / np.std(x, axis=axis, keepdims=True, ddof=ddof)
 
 def fisher_transform(r): 
@@ -50,42 +50,43 @@ def toeplitz(r, axis=-1, dtype=None, hermitian=True, subok=False, writeable=Fals
 
 # Correlations
 # ------------
-def pearson_r(x, y, axis=-1): 
-    u = standardize(x, axis)
-    v = standardize(y, axis)
+def pearson_r(x, y, axis=-1, standardize=True): 
+    if standardize:
+        x = normalize(x, axis)
+        y = normalize(y, axis)
 
-    return (u * v).mean(axis=axis)
+    return (x * y).mean(axis=axis)
 
-def spearman_r(x, y, axis=-1): 
+def spearman_r(x, y, axis=-1, **kwargs): 
     u = rank(x, axis=axis)
     v = rank(y, axis=axis)
 
     return pearson_r(u, v, axis=axis)
 
-def stats_summary(metrics, x, y, axis=-1, n_surrogates=5000): 
+def stats_summary(metrics, x, y, axis=-1, n_surrogates=5000, standardize=True): 
     if metrics == 'pearson': 
         metrics = pearson_r
     elif metrics == 'spearman':
         metrics = spearman_r
 
     # Basics
-    r = metrics(x, y, axis)
+    r = metrics(x, y, axis, standardize=standardize)
     z = fisher_transform(r)
     n = x.shape[axis]
     p = dict() 
 
-    rg = estimate_roughness(x, y, axis=axis)
+    rg = estimate_roughness(x, y, axis=axis, standardize=standardize)
 
     # Uncorr
     p['uncorrected'] = z_pvalue(z, n)
 
 
     # EDF correction
-    acf_x    = acf(x, axis=axis)
-    acf_y    = acf(y, axis=axis)
+    acf_x    = acf(x, axis=axis, standardize=standardize)
+    acf_y    = acf(y, axis=axis, standardize=standardize)
 
     a = dict() 
-    a['rft']        = edfs_factor_rft(x, y, axis)
+    a['rft']        = edfs_factor_rft(x, y, axis, standardize=standardize)
     a['bh']         = edfs_factor_bh(acf_x, acf_y, axis)
     a['quenouille'] = edfs_factor_quenouille(acf_x, acf_y, axis)
     a['bartlett']   = edfs_factor_bartlett(acf_x, acf_y, axis)
@@ -120,29 +121,34 @@ def fisher_scaling(a, r):
 
 # Autocorrelation estimators
 # --------------------------
-def acf_welch(x, axis=-1):
-    x   = standardize(x, axis)
+def acf_welch(x, axis=-1, standardize=True):
+    if standardize:
+        x   = normalize(x, axis)
 
     Pxx = 0.5 * scipy.signal.welch(x, axis=axis)[1] # 0.5 here compensate for left + right part of spectra
     Pxx = np.concatenate([Pxx, np.flip(np.delete(Pxx, 0, axis=axis), axis=axis)], axis=axis) 
     Rxx = np.real(np.fft.ifft(Pxx, axis=axis)) 
-    Rxx /= Rxx[0]
+    Rxx /= np.expand_dims(np.take(Rxx, 0, axis), axis)
 
     return Rxx 
 
-def acf_fft(x, axis=-1): 
-    x   = standardize(x, axis)
+def acf_fft(x, axis=-1,standardize=True): 
+
+    if standardize:
+        x   = normalize(x, axis)
 
     Rxx = np.real(np.fft.ifft(np.abs(np.fft.fft(x, axis=axis))**2, axis=axis))
-    Rxx /= Rxx[0]
+    Rxx /= np.expand_dims(np.take(Rxx, 0, axis), axis)
     
     return Rxx
 
-def acf_sample(x, axis=-1, mode='unbiased'):
+def acf_sample(x, axis=-1, mode='unbiased', standardize=True):
     assert(mode in ('classic', 'unbiased'))
 
     x = np.moveaxis(x, axis, -1)
-    x = standardize(x, -1)
+
+    if standardize:
+        x = normalize(x, -1)
 
     if mode == 'unbiased': 
         u = np.ones(x.shape[axis])
@@ -153,7 +159,7 @@ def acf_sample(x, axis=-1, mode='unbiased'):
 
     Rxx  = np.apply_along_axis(corr, -1, x)
     Rxx  = np.concatenate([Rxx[..., Rxx.shape[-1]//2:], Rxx[..., :Rxx.shape[-1]//2]], axis=-1)
-    Rxx /= Rxx[0]
+    Rxx /= Rxx[:,0]
 
     Rxx  = np.moveaxis(Rxx, -1, axis)
 
@@ -170,21 +176,23 @@ def acf(x, axis=-1, method="fft", **kwargs):
 
 # Random field theory stuff
 # -------------------------
-def estimate_roughness_rft(x, y, axis=-1, dt=1): 
+def estimate_roughness_rft(x, y, axis=-1, dt=1, standardize=True): 
     n = x.shape[axis] 
 
-    x = standardize(x, axis=axis)
-    y = standardize(y, axis=axis)
+    if standardize:
+        x = normalize(x, axis=axis)
+        y = normalize(y, axis=axis)
 
     u = np.diff(x, axis=axis) 
     v = np.diff(y, axis=axis)
 
     return np.sum(u**2 + v**2, axis=axis) / (n * dt**2)
 
-def estimate_roughness_fft(x, y, axis=-1, dt=1): 
+def estimate_roughness_fft(x, y, axis=-1, dt=1, standardize=True): 
 
-    x = standardize(x, axis=axis)
-    y = standardize(y, axis=axis)
+    if standardize:
+        x = normalize(x, axis=axis)
+        y = normalize(y, axis=axis)
 
     Sx = np.abs(np.fft.fft(x, axis=axis))**2
     Sy = np.abs(np.fft.fft(y, axis=axis))**2
@@ -199,8 +207,8 @@ _RG_METHOD_MAP = {
     "fft": estimate_roughness_fft, 
 }
 
-def estimate_roughness(x, y, method='rft', axis=-1, dt=1): 
-    return _RG_METHOD_MAP[method](x, y, axis=axis, dt=dt)
+def estimate_roughness(x, y, method='rft', axis=-1, dt=1, standardize=True): 
+    return _RG_METHOD_MAP[method](x, y, axis=axis, dt=dt, standardize=standardize)
 
 
 # Effective degrees of freedoms estimators
@@ -235,8 +243,8 @@ def edfs_factor_ws(acf_x, acf_y, axis=-1):
 
     return n / np.trace(Kx @ Ky)
 
-def edfs_factor_rft(x, y, axis=-1, kernel='gaussian',  method='rft'): 
-    w = estimate_roughness(x, y, axis=axis, method=method)
+def edfs_factor_rft(x, y, axis=-1, kernel='gaussian',  method='rft', standardize=True): 
+    w = estimate_roughness(x, y, axis=axis, method=method, standardize=standardize)
 
     if kernel == 'gaussian':
         a = np.sqrt(w / (2 * np.pi))
@@ -270,9 +278,10 @@ def bootstrap_p(metrics, x, y, n, axis=-1, return_samples=False):
 
     Zs = metrics(Xs, Ys, axis=axis)
     Zr = metrics(x, y, axis=axis)
+
     Zr = Zr.reshape([1, *Zr.shape])
 
-    p = 2*min(np.count_nonzero(Zs < Zr, axis=0), np.count_nonzero(Zs > Zr, axis=0)) / n
+    p = 2*np.minimum(np.count_nonzero(Zs < Zr, axis=0), np.count_nonzero(Zs > Zr, axis=0)) / n
 
     if return_samples:
         return p, Zs, Zr
@@ -295,7 +304,7 @@ def gaussian_acf_noise(n: int, m=1, r=1, dt=1, kernel='gaussian'):
     fn = lambda x: scipy.signal.convolve(x, k, mode='same')
     x  = np.apply_along_axis(fn, axis=-1, arr=w) 
 
-    x  = standardize(x, axis=-1)
+    x  = normalize(x, axis=-1)
     x  = np.squeeze(x)
 
     return x

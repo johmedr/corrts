@@ -55,7 +55,36 @@ def pearson_r(x, y, axis=-1, standardize=True):
         x = normalize(x, axis)
         y = normalize(y, axis)
 
+
     return (x * y).mean(axis=axis)
+
+    # def pearson_r(x, y, axis=-1, standardize=True): 
+
+    # if axis != -1: 
+    #     x = np.moveaxis(x, axis, -1)
+    #     y = np.moveaxis(y, axis, -1)
+
+    # if x.shape[-1] != y.shape[-1]: 
+    #     raise ValueError("x and y should have the same number of elements along reduced axis.")
+
+    # x_shape = x.shape
+    # y_shape = y.shape
+
+    # N = x_shape[-1]
+
+    # x = x.reshape((-1, x.shape[-1])) / np.sqrt(N)
+    # y = y.reshape((-1, y.shape[-1])) / np.sqrt(N)
+
+    # if standardize:
+    #     x = normalize(x, -1)
+    #     y = normalize(y, -1)
+
+    # r = x @ y.T
+
+    # r = r.reshape((*x_shape[:-1], *y_shape[:-1]))
+
+    # return r
+
 
 def spearman_r(x, y, axis=-1, **kwargs): 
     u = rank(x, axis=axis)
@@ -75,7 +104,8 @@ def stats_summary(metrics, x, y, axis=-1, n_surrogates=5000, standardize=True):
     n = x.shape[axis]
     p = dict() 
 
-    rg = estimate_roughness(x, y, axis=axis, standardize=standardize)
+    rg_x = estimate_roughness(x, axis=axis, standardize=standardize)
+    rg_y = estimate_roughness(y, axis=axis, standardize=standardize)
 
     # Uncorr
     p['uncorrected'] = z_pvalue(z, n)
@@ -105,13 +135,16 @@ def stats_summary(metrics, x, y, axis=-1, n_surrogates=5000, standardize=True):
 
 
     summary = {
-        'r': r, 'z': z, 'n': n, 'p':p, 'aedfs': a, 'nedfs': edfs, 'roughness': rg, 'kappa': kappa
+        'r': r, 'z': z, 'n': n, 'p':p, 'aedfs': a, 'nedfs': edfs, 'roughness': {'x':rg_x, 'y':rg_y}, 'kappa': kappa
     } 
 
     return summary
 
-def z_pvalue(z, n): 
-    return 2 * scipy.stats.norm.cdf(-np.abs(z), 0, 1./np.sqrt(n-3))
+def z_pvalue(z, n, two_sided=True): 
+    if two_sided:
+        return 2 * scipy.stats.norm.cdf(-np.abs(z), 0, 1./np.sqrt(n-3))
+    else:
+        return scipy.stats.norm.cdf(-z, 0, 1./np.sqrt(n-3))
 
 def fisher_scaling(a, r): 
     z = fisher_transform(r)
@@ -176,39 +209,47 @@ def acf(x, axis=-1, method="fft", **kwargs):
 
 # Random field theory stuff
 # -------------------------
-def estimate_roughness_rft(x, y, axis=-1, dt=1, standardize=True): 
-    n = x.shape[axis] 
-
+def estimate_roughness_rft(x, axis=-1, dt=1, standardize=True): 
     if standardize:
         x = normalize(x, axis=axis)
-        y = normalize(y, axis=axis)
+    u = np.diff(x)
 
-    u = np.diff(x, axis=axis) 
-    v = np.diff(y, axis=axis)
+    return np.mean(u**2, axis=axis)/dt**2
 
-    return np.sum(u**2 + v**2, axis=axis) / (n * dt**2)
 
-def estimate_roughness_fft(x, y, axis=-1, dt=1, standardize=True): 
+# def estimate_roughness_rft(x, y, axis=-1, dt=1, standardize=True): 
+#     n = x.shape[axis] 
 
-    if standardize:
-        x = normalize(x, axis=axis)
-        y = normalize(y, axis=axis)
+#     if standardize:
+#         x = normalize(x, axis=axis)
+#         y = normalize(y, axis=axis)
 
-    Sx = np.abs(np.fft.fft(x, axis=axis))**2
-    Sy = np.abs(np.fft.fft(y, axis=axis))**2
+#     u = np.diff(x, axis=axis) 
+#     v = np.diff(y, axis=axis)
 
-    f  = np.fft.fftfreq(x.shape[axis]) / dt
-    df = f[1]
-    # over 4 as we average dofs, not the roughness (?)
-    return np.mean(df * (2 * np.pi * f) ** 2 * (Sx + Sy)) / 4 
+#     return np.sum(u**2 + v**2, axis=axis) / (n * dt**2)
+
+# def estimate_roughness_fft(x, y, axis=-1, dt=1, standardize=True): 
+
+#     if standardize:
+#         x = normalize(x, axis=axis)
+#         y = normalize(y, axis=axis)
+
+#     Sx = np.abs(np.fft.fft(x, axis=axis))**2
+#     Sy = np.abs(np.fft.fft(y, axis=axis))**2
+
+#     f  = np.fft.fftfreq(x.shape[axis]) / dt
+#     df = f[1]
+#     # over 4 as we average dofs, not the roughness (?)
+#     return np.mean(df * (2 * np.pi * f) ** 2 * (Sx + Sy)) / 4 
 
 _RG_METHOD_MAP = {
     "rft": estimate_roughness_rft, 
-    "fft": estimate_roughness_fft, 
+    # "fft": estimate_roughness_fft, 
 }
 
-def estimate_roughness(x, y, method='rft', axis=-1, dt=1, standardize=True): 
-    return _RG_METHOD_MAP[method](x, y, axis=axis, dt=dt, standardize=standardize)
+def estimate_roughness(x, method='rft', axis=-1, dt=1, standardize=True): 
+    return _RG_METHOD_MAP[method](x, axis=axis, dt=dt, standardize=standardize)
 
 
 # Effective degrees of freedoms estimators
@@ -244,14 +285,16 @@ def edfs_factor_ws(acf_x, acf_y, axis=-1):
     return n / np.trace(Kx @ Ky)
 
 def edfs_factor_rft(x, y, axis=-1, kernel='gaussian',  method='rft', standardize=True): 
-    w = estimate_roughness(x, y, axis=axis, method=method, standardize=standardize)
+    rx = estimate_roughness(x, axis=axis, method=method, standardize=standardize)
+    ry = estimate_roughness(y, axis=axis, method=method, standardize=standardize)
+
 
     if kernel == 'gaussian':
-        a = np.sqrt(w / (2 * np.pi))
-    elif kernel == 'sinc': 
-        a = np.sqrt(3 * w) / (2*np.pi)
-    elif kernel == 'ar(1)': 
-        a = np.sqrt(w) / 2
+        a = np.sqrt((rx + ry) / (2 * np.pi)) # Eq 10: v/n = sqrt(rx + ry / (2 pi))
+    # elif kernel == 'sinc': 
+    #     a = np.sqrt(3 * w) / (2*np.pi)
+    # elif kernel == 'ar(1)': 
+    #     a = np.sqrt(w) / 2
 
     return a
 
@@ -272,13 +315,26 @@ def phrndsurr(x, n, axis=-1):
 
     return z
 
-def bootstrap_p(metrics, x, y, n, axis=-1, return_samples=False):
-    Xs = phrndsurr(x, n, axis=axis)
-    Ys = phrndsurr(y, n, axis=axis)
+def bootstrap_p(metrics, x, y, n, axis=-1, return_samples=False, block_size=256):
+    nblocks = int(max(np.ceil(n / block_size), 1))
 
-    Zs = metrics(Xs, Ys, axis=axis)
+    Zs = []
+    for i in range(nblocks):
+        if i == nblocks - 1: 
+            nsamples = min(block_size, n - i * block_size)
+        else: 
+            nsamples = block_size
+
+        if nsamples == 0: break
+
+        Xs = phrndsurr(x, nsamples, axis=axis)
+        Ys = phrndsurr(y, nsamples, axis=axis)
+
+        Zs.append(metrics(Xs, Ys, axis=axis))
+
+    Zs = np.concatenate(Zs, 0)
+
     Zr = metrics(x, y, axis=axis)
-
     Zr = Zr.reshape([1, *Zr.shape])
 
     p = 2*np.minimum(np.count_nonzero(Zs < Zr, axis=0), np.count_nonzero(Zs > Zr, axis=0)) / n
@@ -295,7 +351,7 @@ def gaussian_acf_noise(n: int, m=1, r=1, dt=1, kernel='gaussian'):
     t = np.linspace(-n//2, n//2, n+1, endpoint=True) * dt 
 
     if kernel == 'gaussian': 
-        k = np.exp(-t**2 / (2 * r**2))
+        k = np.exp(-t**2 * r)
     elif kernel == 'absolute': 
         k = np.exp(-np.abs(t) / r)
     
